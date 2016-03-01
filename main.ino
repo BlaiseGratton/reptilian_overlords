@@ -101,8 +101,13 @@ void setup() {
   matrix.print("B");
   matrix.setTextColor(matrix.Color444(7,0,4));
   matrix.print("*");
-
+	Particle.subscribe("hook-response/get_message_data", printMessage, MY_DEVICES);
   // whew!
+}
+
+void printMessage(const char *name, const char *data) {
+	String response = String(data);
+	matrix.print(response);
 }
 
 void loop() {
@@ -114,4 +119,10 @@ void loop() {
   //displayValue = sensorValue.toString();
   matrix.print((sensorValue / 6.4) / 12);
   delay(200);
+  matrix.fillScreen(matrix.Color444(0, 0, 0));
+  matrix.setCursor(1, 0);   // start at top left, with one pixel of spacing
+  matrix.setTextSize(1);    // size 1 == 8 pixels high
+  matrix.setTextColor(matrix.Color444(7,0,4));
+	Particle.publish("get_message_data");
+	delay(5000);
 }

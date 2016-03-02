@@ -5,7 +5,19 @@
 #include "Adafruit_mfGFX.h"   // Core graphics library
 #include "RGBmatrixPanel.h" // Hardware-specific library
 #include "math.h"
+#include "speedometer.h"
 #include "string.h"
+
+/** Define RGB matrix panel GPIO pins **/
+#if defined (STM32F10X_MD)	//Core
+	#define CLK D6
+	#define OE  D7
+	#define LAT A4
+	#define A   A0
+	#define B   A1
+	#define C   A2
+	#define D	A3		// Only used for 32x32 panels
+#endif
 
 #if defined (STM32F2XX)	//Photon
 	#define CLK D6
@@ -25,6 +37,7 @@ String displayValue;
 
 
 void setup() {
+	initialize_speed_list();
   pinMode(sensor, INPUT);
 	pinMode(switchPin, INPUT_PULLUP);
 
@@ -93,72 +106,99 @@ void setup() {
   matrix.fillScreen(matrix.Color333(0, 0, 0));
 	matrix.setTextWrap(false);
 	matrix.setTextSize(2);
-	delay(500);
+	delay(4000);
   // whew!
 }
 
-char response[4000];
+String response;
 int  textX   = matrix.width(),
      textMin = sizeof(response) * -12,
      hue     = 0;
+bool display_message = true;
+
+float new_distance;
+float old_distance;
+float speed_list[30];
+int speed_count = 0;
+
+void initialize_speed_list()
+{
+	for (int count=0; count < 30; count++)
+	{
+		speed_list[count] = -1;
+	}
+	speed_count = 0;
+}
+
+float get_distance()
+{
+	return (analogRead(sensor)/6.4)/12;
+}
+
+void add_speed(float speed)
+{
+	if (speed_count == 30)
+		initialize_speed_list();
+	if (speed < MAX_SPEED)
+	{
+		speed_list[speed_count++] = speed;
+	}
+}
+
+float ave_speed()
+{
+	if (speed_count == 0) return 0;
+	float result = 0;
+	for (int count = 0; count < speed_count; count++)
+	{
+		result += speed_list[count];
+	}
+	return result/speed_count;
+}
 
 void printMessage(const char *name, const char *data) {
-	//String resp = String(data);
-	/*int i = 0;
-	char ch;
-	while (i < 3999 && data[i] != 0) {
-		response[i++] = ch;
-	}
-	response[i] = '\0';*/
-	strcpy(response, data);
+	String resp(data);
+	textMin = strlen(data) * -12;
+	response = resp;
 }
 
 void loop() {
-	/*
+	// Clear background
   matrix.fillScreen(matrix.Color333(0, 0, 0));
-  matrix.setCursor(1, 0);   // start at top left, with one pixel of spacing
-  matrix.setTextSize(1);    // size 1 == 8 pixels high
-  matrix.setTextColor(matrix.Color333(7,0,4));
-  sensorValue = analogRead(sensor);
-  //displayValue = sensorValue.toString();
-  matrix.print((sensorValue / 6.4) / 12);
-  delay(200);
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
-  matrix.setCursor(1, 0);   // start at top left, with one pixel of spacing
-  matrix.setTextSize(1);    // size 1 == 8 pixels high
-  matrix.setTextColor(matrix.Color333(7,0,4));
-	Particle.publish("get_message_data");
-	delay(5000);
-	//
-  matrix.fillScreen(matrix.Color333(0, 0, 0));
-  matrix.setCursor(1, 0);   // start at top left, with one pixel of spacing
-  matrix.setTextSize(1);    // size 1 == 8 pixels high
-  matrix.setTextColor(matrix.Color333(7,0,4));
-	if (analogRead(switchPin) < 0.5) {
-	  Particle.publish("get_message_data");
-		delay(3000);
-	  matrix.fillScreen(matrix.Color333(0, 0, 0));
+  new_distance = get_distance();
+	display_message = (new_distance > MAX_THRESHOLD);
+
+	if (display_message)
+	{
+		initialize_speed_list();
+		old_distance = 0;
+	  // Draw big scrolly text on top
+	  matrix.setTextColor(matrix.ColorHSV(255, 255, 255, true)); //this was ...(hue, 255, 255, true)
+		matrix.setTextSize(2);
+	  matrix.setCursor(textX, 1);
+	  matrix.print(response);
+
+	  // Move text left (w/wrap), increase hue
+	  if((--textX) < textMin) textX = matrix.width();
+
+	  // Update display
+	  matrix.swapBuffers(false);
+	  delay(40);
 	}
-	else {
-		matrix.print("Taylor");
-		delay(3000);
-	  matrix.fillScreen(matrix.Color333(0, 0, 0));
-	}	*/
-
-  // Clear background
-  matrix.fillScreen(0);
-
-  // Draw big scrolly text on top
-  matrix.setTextColor(matrix.ColorHSV(255, 255, 255, true)); //this was ...(hue, 255, 255, true)
-  matrix.setCursor(textX, 1);
-  matrix.print(response);
-
-  // Move text left (w/wrap), increase hue
-  if((--textX) < textMin) textX = matrix.width();
-  hue += 7;
-  if(hue >= 1536) hue -= 1536;
-
-  // Update display
-  matrix.swapBuffers(false);
-	delay(50);
+	else
+	{
+		if (old_distance == 0) {
+			old_distance = MAX_THRESHOLD;
+		}
+		float speed = (abs(old_distance - new_distance) * (SEC_HOUR * (MILLI_SEC/TIMER_WAIT)))/FT_MILE;
+		add_speed(speed);
+		//float speed = (((abs(old_distance - new_distance))/FT_MILE)*SEC_HOUR)*(MILLI_SEC/TIMER_WAIT);
+		matrix.setTextSize(1);
+		matrix.setCursor(1, 1);
+		char display_speed[10];
+		sprintf(display_speed, "%.2f\nMPH", ave_speed());
+		matrix.print(display_speed);
+		old_distance = new_distance;
+		delay(TIMER_WAIT);
+	}
 }
